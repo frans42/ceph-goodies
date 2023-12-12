@@ -1,0 +1,199 @@
+#!/bin/bash
+
+# Compute last scrub interval count. Scrub interval 6h, deep-scrub interval 24h.
+# Print how many PGs have not been (deep-)scrubbed since #intervals.
+#
+# compare two reports side by side:
+# diff -y logs/scrub_231116.log logs/scrub_231117.log -W 180 | less
+
+(( $# == 1 )) || {
+	cat >&2 <<EOF
+usage: pool-scrub-report (pool_name|pool_id)
+EOF
+	exit 1
+}
+
+if [[ "$1" =~ ^[[:digit:]]+$ ]]; then
+	pool_info=( $(ceph osd pool ls detail --format json-pretty | \
+		jq -r --arg id "$1" '.[] | select(.pool_id==($id|tonumber))
+		| "\(.pool_id) \(.pool_name) \(.pg_num)"') )
+else
+	pool_info=( $(ceph osd pool ls detail --format json-pretty | \
+		jq -r --arg nm "$1" '.[] | select(.pool_name==$nm)
+		| "\(.pool_id) \(.pool_name) \(.pg_num)"') )
+fi
+(( ${#pool_info[@]}==3 )) || {
+	echo "error: could not read pool info." >&2
+	exit 1
+}
+
+pool_settings="$(ceph osd pool get "${pool_info[1]}" all --format json-pretty)"
+echo -n "Scrub info for pool ${pool_info[1]} (id=${pool_info[0]}): "
+
+sc_int="$(jq -r '(.scrub_min_interval  // 0)/21600 | ceil' <<<"$pool_settings")"
+ds_int="$(jq -r '(.deep_scrub_interval // 0)/86400 | ceil' <<<"$pool_settings")"
+
+ceph -f json pg dump pgs 2>&1 > /root/.cache/ceph/pgs_dump.json
+echo ""
+
+T0="$(date +%s)"
+
+first_primary="osd.$(jq --arg pool_id "${pool_info[0]}" -r \
+	'[.pg_stats[] | select(.pgid | startswith($pool_id+"."))] | .[0] | .acting[0]' \
+	/root/.cache/ceph/pgs_dump.json)"
+
+scrub_info="$(jq --arg T0 "$T0" --arg pool_id "${pool_info[0]}" -rc \
+	'.pg_stats[] | [
+	.pgid,
+	((( (.last_scrub_stamp[:19]+"Z" | ($T0|tonumber) - fromdateiso8601)
+		+ (.last_scrub_stamp[26:]|tonumber)*36)/(60*60*6)) | ceil),
+	((( (.last_deep_scrub_stamp[:19]+"Z" | ($T0|tonumber) - fromdateiso8601)
+		+ (.last_deep_scrub_stamp[26:]|tonumber)*36)/(60*60*24)) | ceil),
+	.state,
+	(.acting | join(" "))
+	] | @tsv
+' /root/.cache/ceph/pgs_dump.json)" || exit 1
+
+# less <<<"$scrub_info"
+# sort -n -k2,2 <<<"$scrub_info" | less
+# exit
+
+#     1          2               3      4    5..NF
+# pg_id scrub-ints deep-scrub-ints status acting[]
+awk <<<"$scrub_info" -v pool_id="${pool_info[0]}" -v sis_mn="$sc_int" -v dsis_mn="$ds_int" '{
+	split($1, pg_id, ".") # [1]=pool_id
+	if(pg_in_pool=(pg_id[1]==pool_id)) {
+		NPGS++
+		si=$2>0 ? $2 : 1
+		si_mx=si_mx<si ? si : si_mx
+		dsi=$3>0 ? $3 : 1
+		dsi_mx=dsi_mx<dsi ? dsi : dsi_mx
+		pg_sn[si]++
+		pg_dsn[dsi]++
+		for(i=5; i<=NF; ++i) pg_osds[$1]=pg_osds[$1] " " $i
+	}
+	if($4 ~ /scrubbing\+deep/) {
+		if(pg_in_pool) deep_scrubbing[dsi]++
+		if(pg_in_pool) deep_scrubbing_s[si]++
+		for(i=5; i<=NF; ++i) osd[$i]="busy"
+	} else if($4 ~ /scrubbing/) {
+		if(pg_in_pool) scrubbing[si]++
+		if(pg_in_pool) scrubbing_d[dsi]++
+		for(i=5; i<=NF; ++i) osd[$i]="busy"
+	} else if($4 ~ /active\+clean/) {
+		if(pg_in_pool) pg_sn_ids[si]=pg_sn_ids[si] " " $1
+        	if(pg_in_pool) pg_dsn_ids[dsi]=pg_dsn_ids[dsi] " " $1
+	} else {
+		if(pg_in_pool) unclean[si]++
+		if(pg_in_pool) unclean_d[dsi]++
+		for(i=5; i<=NF; ++i) osd[$i]="busy"
+	}
+}
+END {
+	print "Scrub report:"
+	npgs=0
+	intervals=0
+	nscr=0
+	nidle=0
+	nunc=0
+	for(si=1; si<=si_mx; ++si) {
+		intervals+=6
+		if(pg_sn[si]==0 && scrubbing[si]==0 && unclean[si]==0) continue;
+		npgs+=pg_sn[si]
+		nscr+=scrubbing[si]
+		nunc+=unclean[si]
+		printf("%4d%% %7d PGs not scrubbed since %2d intervals (%3dh)", \
+			100.0*npgs/NPGS, pg_sn[si], si, intervals)
+		split(pg_sn_ids[si], pgs)
+		busy=0
+		if(si>sis_mn) for(pg in pgs) {
+			split(pg_osds[pgs[pg]], osds)
+			osds_busy=0
+			for(o in osds) if(osd[osds[o]]=="busy") {osds_busy=1; break}
+			if(osds_busy) busy++
+		}
+		if(si>sis_mn && idle=length(pgs)-busy) {
+			nidle+=idle;
+			printf(" [%d idle]", idle)
+		}
+		if(deep_scrubbing_s[si]) printf(" [%d scrubbing+deep]", deep_scrubbing_s[si])
+		if(unclean[si])          printf(" [%d unclean]", unclean[si])
+		if(scrubbing[si])        printf(" %d scrubbing", scrubbing[si])
+		printf("\n")
+	}
+	printf("      %7d PGs out of %d reported, %d missing, %d scrubbing, %d idle, %d unclean.\n", \
+		npgs, NPGS, NPGS-npgs, nscr, nidle, nunc)
+	print ""
+	print "Deep-scrub report:"
+	npgs=0
+	nscr=0
+	nunc=0
+	intervals=0
+	for(dsi=1; dsi<=dsi_mx; ++dsi) {
+		intervals+=24
+		if(pg_dsn[dsi]==0 && deep_scrubbing[dsi]==0 && unclean_d[dsi]==0) continue;
+		npgs+=pg_dsn[dsi]
+		nscr+=deep_scrubbing[dsi]
+		nunc+=unclean_d[dsi]
+		printf("%4d%% %7d PGs not deep-scrubbed since %2d intervals (%3dh)", \
+			100.0*npgs/NPGS, pg_dsn[dsi], dsi, intervals)
+		split(pg_dsn_ids[dsi], pgs)
+		busy=0
+		if(dsi_mn<dsi && pg_dsn[dsi]<=5) for(pg in pgs) {
+			split(pg_osds[pgs[pg]], osds)
+			osds_busy=0
+			for(o in osds) if(osd[osds[o]]=="busy") {osds_busy=1; break}
+			if( osds_busy) busy++
+			if(!osds_busy) printf(" %s", pgs[pg])
+		}
+		if(busy) printf(" [%d busy]", busy)
+		if(scrubbing_d[dsi])    printf(" [%d scrubbing]", scrubbing_d[dsi])
+		if(unclean_d[dsi])      printf(" [%d unclean]", unclean_d[dsi])
+		if(deep_scrubbing[dsi]) printf(" %d scrubbing+deep", deep_scrubbing[dsi])
+		printf("\n")
+	}
+	printf("      %7d PGs out of %d reported, %d missing, %d scrubbing+deep, %d unclean.\n", \
+		npgs, NPGS, NPGS-npgs, nscr, nunc)
+}
+'
+
+echo ""
+pool_scrub_min_interval="$(jq -r '(.scrub_min_interval // 0)/3600' <<<"$pool_settings")"
+osd_scrub_interval_randomize_ratio="$(ceph config get "$first_primary" osd_scrub_interval_randomize_ratio)"
+smi_eq_occup="$(bc <<<"100/(1+0.5*${osd_scrub_interval_randomize_ratio})/1")"
+pgs_per_bucket="$(bc <<<"${smi_eq_occup}*${pool_info[2]}*6/${pool_scrub_min_interval}/100")"
+echo "${pool_info[1]}  scrub_min_interval=${pool_scrub_min_interval}h  ($((pool_scrub_min_interval / 6))i/${smi_eq_occup}%/${pgs_per_bucket}PGs÷i)"
+
+pool_scrub_max_interval="$(jq -r '(.scrub_max_interval // 0)/3600' <<<"$pool_settings")"
+echo "${pool_info[1]}  scrub_max_interval=${pool_scrub_max_interval}h  ($((pool_scrub_max_interval / 24))d)"
+
+pool_deep_scrub_interval="$(jq -r '(.deep_scrub_interval // 0)/3600' <<<"$pool_settings")"
+dsmi_eq_occup="$(bc <<<"100*${pool_deep_scrub_interval}/(\
+		${pool_deep_scrub_interval}+0.5*(${pool_scrub_min_interval}*(1+0.5*${osd_scrub_interval_randomize_ratio}))\
+	)")"
+pgs_per_bucket="$(bc <<<"${dsmi_eq_occup}*${pool_info[2]}*24/${pool_deep_scrub_interval}/100")"
+echo "${pool_info[1]}  deep_scrub_interval=${pool_deep_scrub_interval}h  ($((pool_deep_scrub_interval / 24))d/~${dsmi_eq_occup}%/~${pgs_per_bucket}PGs÷d)"
+
+smi_plus_rand="$(bc -l <<<"scale=0; (($pool_scrub_min_interval * (1+$osd_scrub_interval_randomize_ratio))+0.5)/1")"
+echo "$first_primary  osd_scrub_interval_randomize_ratio=${osd_scrub_interval_randomize_ratio}  scrubs start after: ${pool_scrub_min_interval}h..${smi_plus_rand}h"
+
+osd_deep_scrub_randomize_ratio="$(ceph config get "$first_primary" osd_deep_scrub_randomize_ratio)"
+echo "$first_primary  osd_deep_scrub_randomize_ratio=${osd_deep_scrub_randomize_ratio}"
+
+osd_max_scrubs="$(ceph config get "$first_primary" osd_max_scrubs)"
+echo "$first_primary  osd_max_scrubs=${osd_max_scrubs}"
+
+osd_backoff="$(ceph config get "$first_primary" osd_scrub_backoff_ratio)"
+osd_class="$(ceph osd crush get-device-class "$first_primary")"
+pool_size="$(jq -r '.size' <<<"$pool_settings")"
+rec_backoff="$(bc<<<"scale=4; 1-0.75/$pool_size")"
+echo "$first_primary  osd_scrub_backoff_ratio=${osd_backoff}  rec. this pool: $rec_backoff (class $osd_class, size $pool_size)"
+
+mon_warn_pg_not_scrubbed_ratio="$(ceph config get mon.ceph-01 mon_warn_pg_not_scrubbed_ratio)"
+scrub_warni="$(bc -l <<<"scale=1; ${pool_scrub_max_interval}*(1+${mon_warn_pg_not_scrubbed_ratio})/6")"
+scrub_warnd="$(bc -l <<<"scale=1; ${pool_scrub_max_interval}*(1+${mon_warn_pg_not_scrubbed_ratio})/24")"
+echo "mon.ceph-01  mon_warn_pg_not_scrubbed_ratio=${mon_warn_pg_not_scrubbed_ratio}  warn: ${scrub_warnd}d (${scrub_warni}i)"
+
+mon_warn_pg_not_deep_scrubbed_ratio="$(ceph config get mon.ceph-01 mon_warn_pg_not_deep_scrubbed_ratio)"
+deeps_warn="$(bc -l <<<"scale=1; ${pool_deep_scrub_interval}*(1+${mon_warn_pg_not_deep_scrubbed_ratio})/24")"
+echo "mon.ceph-01  mon_warn_pg_not_deep_scrubbed_ratio=${mon_warn_pg_not_deep_scrubbed_ratio}  warn: ${deeps_warn}d"
