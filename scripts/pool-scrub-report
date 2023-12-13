@@ -33,14 +33,14 @@ echo -n "Scrub info for pool ${pool_info[1]} (id=${pool_info[0]}): "
 sc_int="$(jq -r '(.scrub_min_interval  // 0)/21600 | ceil' <<<"$pool_settings")"
 ds_int="$(jq -r '(.deep_scrub_interval // 0)/86400 | ceil' <<<"$pool_settings")"
 
-ceph -f json pg dump pgs 2>&1 > /root/.cache/ceph/pgs_dump.json
+ceph -f json pg dump pgs 2>&1 > /var/tmp/pgs_dump.json
 echo ""
 
 T0="$(date +%s)"
 
 first_primary="osd.$(jq --arg pool_id "${pool_info[0]}" -r \
 	'[.pg_stats[] | select(.pgid | startswith($pool_id+"."))] | .[0] | .acting[0]' \
-	/root/.cache/ceph/pgs_dump.json)"
+	/var/tmp/pgs_dump.json)"
 
 scrub_info="$(jq --arg T0 "$T0" --arg pool_id "${pool_info[0]}" -rc \
 	'.pg_stats[] | [
@@ -52,7 +52,7 @@ scrub_info="$(jq --arg T0 "$T0" --arg pool_id "${pool_info[0]}" -rc \
 	.state,
 	(.acting | join(" "))
 	] | @tsv
-' /root/.cache/ceph/pgs_dump.json)" || exit 1
+' /var/tmp/pgs_dump.json)" || exit 1
 
 # less <<<"$scrub_info"
 # sort -n -k2,2 <<<"$scrub_info" | less
