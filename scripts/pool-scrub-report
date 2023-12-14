@@ -42,17 +42,39 @@ first_primary="osd.$(jq --arg pool_id "${pool_info[0]}" -r \
 	'[.pg_stats[] | select(.pgid | startswith($pool_id+"."))] | .[0] | .acting[0]' \
 	/var/tmp/pgs_dump.json)"
 
-scrub_info="$(jq --arg T0 "$T0" --arg pool_id "${pool_info[0]}" -rc \
-	'.pg_stats[] | [
-	.pgid,
-	((( (.last_scrub_stamp[:19]+"Z" | ($T0|tonumber) - fromdateiso8601)
-		+ (.last_scrub_stamp[26:]|tonumber)*36)/(60*60*6)) | ceil),
-	((( (.last_deep_scrub_stamp[:19]+"Z" | ($T0|tonumber) - fromdateiso8601)
-		+ (.last_deep_scrub_stamp[26:]|tonumber)*36)/(60*60*24)) | ceil),
-	.state,
-	(.acting | join(" "))
-	] | @tsv
-' /var/tmp/pgs_dump.json)" || exit 1
+# bug: this should stop processing after the first array element is read
+first_ts="$(jq -r '.pg_stats[0].last_scrub_stamp' /root/.cache/ceph/pgs_dump.json)"
+
+# guess date format, addresses a date stamp change from nautolus to octopus
+if [[ "$first_ts" == ????-??-??T??:??:??.??????+???? ]]; then
+	# bug: this converts the minutes part of a time offset incorrectly
+        #      for timezones with fractional offset
+	scrub_info="$(jq --arg T0 "$T0" --arg pool_id "${pool_info[0]}" -rc \
+		'.pg_stats[] | [
+		.pgid,
+		((( (.last_scrub_stamp[:19]+"Z" | ($T0|tonumber) - fromdateiso8601)
+			+ (.last_scrub_stamp[26:]|tonumber)*36)/(60*60*6)) | ceil),
+		((( (.last_deep_scrub_stamp[:19]+"Z" | ($T0|tonumber) - fromdateiso8601)
+			+ (.last_deep_scrub_stamp[26:]|tonumber)*36)/(60*60*24)) | ceil),
+		.state,
+		(.acting | join(" "))
+		] | @tsv
+	' /root/.cache/ceph/pgs_dump.json)" || exit 1
+else
+	# try to be lucky and construct local time stamp in ISO8601 format
+	#   this might lead to incorrect time offsets
+	scrub_info="$(jq --arg T0 "$T0" --arg pool_id "${pool_info[0]}" -rc \
+		'.pg_stats[] | [
+		.pgid,
+		((( (.last_scrub_stamp[0:10]+"T"+.last_scrub_stamp[11:19]+"Z" 
+			| ($T0|tonumber) - fromdateiso8601))/(60*60*6)) | ceil),
+		((( (.last_deep_scrub_stamp[0:10]+"T"+.last_deep_scrub_stamp[11:19]+"Z"
+			| ($T0|tonumber) - fromdateiso8601))/(60*60*24)) | ceil),
+		.state,
+		(.acting | join(" "))
+		] | @tsv
+	' /root/.cache/ceph/pgs_dump.json)" || exit 1
+fi
 
 # less <<<"$scrub_info"
 # sort -n -k2,2 <<<"$scrub_info" | less
