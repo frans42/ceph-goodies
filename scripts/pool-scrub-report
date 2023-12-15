@@ -46,7 +46,7 @@ first_primary="osd.$(jq --arg pool_id "${pool_info[0]}" -r \
 first_ts="$(jq -r '.pg_stats[0].last_scrub_stamp' /root/.cache/ceph/pgs_dump.json)"
 
 # guess date format, addresses a date stamp change from nautilus to octopus
-if [[ "$first_ts" == ????-??-??T??:??:??.??????+???? ]]; then
+if [[ "$first_ts" == ????-??-??T??:??:??.??????[+-]???? ]]; then
 	# bug: this converts the minutes part of a time offset incorrectly
         #      for timezones with fractional offset
 	scrub_info="$(jq --arg T0 "$T0" --arg pool_id "${pool_info[0]}" -rc \
