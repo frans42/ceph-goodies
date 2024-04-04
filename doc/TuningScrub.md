@@ -113,7 +113,7 @@ osd.221  osd_scrub_backoff_ratio=0.500000
 
 ## Inspecting scrub time histograms
 
-Use the script [`pool-scrub-report`](scripts/pool-scrub-report) to print a scrub-time histogram for a pool. Usage is as in
+Use the script [`pool-scrub-report`](../scripts/pool-scrub-report) to print a scrub-time histogram for a pool. Usage is as in
 
 ```
 pool-scrub-report MyPool
