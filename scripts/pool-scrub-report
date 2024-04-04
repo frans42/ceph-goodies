@@ -5,6 +5,10 @@
 #
 # compare two reports side by side:
 # diff -y logs/scrub_231116.log logs/scrub_231117.log -W 180 | less
+#
+# calculate and inspect scrub-interval parameters:
+# calculate osd_scrub_interval_randomize_ratio: bc <<<"scale=6; a=48; i=24; a; a+0.5*i; a+i; (a+i)/a-1"
+# inspect scrub interval overlap: for i in {1..8} ; do printf "%2d: %5.1f %5.1f %5.1f\n" $i $(bc <<<"scale=1; a=48; i=24; a*$i/24; (a+0.5*i)*$i/24; (a+i)*$i/24"); done
 
 (( $# == 1 )) || {
 	cat >&2 <<EOF
@@ -12,6 +16,10 @@ usage: pool-scrub-report (pool_name|pool_id)
 EOF
 	exit 1
 }
+
+max_age=$((5*60)) # cache TTL = 5 minutes
+cache_dir="${HOME}/.cache/ceph"
+[[ -d "${cache_dir}" ]] || { mkdir -p "${cache_dir}" || exit 1 ; }
 
 if [[ "$1" =~ ^[[:digit:]]+$ ]]; then
 	pool_info=( $(ceph osd pool ls detail --format json-pretty | \
@@ -32,63 +40,90 @@ echo -n "Scrub info for pool ${pool_info[1]} (id=${pool_info[0]}): "
 
 sc_int="$(jq -r '(.scrub_min_interval  // 0)/21600 | ceil' <<<"$pool_settings")"
 ds_int="$(jq -r '(.deep_scrub_interval // 0)/86400 | ceil' <<<"$pool_settings")"
+pool_scrub_min_interval="$(jq -r '(.scrub_min_interval // 0)/3600' <<<"$pool_settings")"
 
-ceph -f json pg dump pgs 2>&1 > /var/tmp/pgs_dump.json
+rebuild_cache=1
+if [[ -r "${cache_dir}/pgs_dump.json" ]]; then
+	age="$(date -d "now - $(date -r "${cache_dir}/pgs_dump.json" +%s 2>/dev/null || echo 0) seconds" +%s)"
+	rebuild_cache=$(( age > max_age ))
+fi
+
+(( rebuild_cache )) \
+	&& ceph -f json pg dump pgs 2>&1 > "${cache_dir}/pgs_dump.json" \
+	|| printf "using cache (RTTL=%01d:%02d)\n" \
+		"$(((max_age-age)/60))" \
+		"$(((max_age-age)-((max_age-age)/60)*60))"
 echo ""
-
-T0="$(date +%s)"
 
 first_primary="osd.$(jq --arg pool_id "${pool_info[0]}" -r \
 	'[.pg_stats[] | select(.pgid | startswith($pool_id+"."))] | .[0] | .acting[0]' \
-	/var/tmp/pgs_dump.json)"
+	"${cache_dir}/pgs_dump.json")"
+osd_scrub_interval_randomize_ratio="$(ceph config get "$first_primary" osd_scrub_interval_randomize_ratio)"
 
-# bug: this should stop processing after the first array element is read
-first_ts="$(jq -r '.pg_stats[0].last_scrub_stamp' /root/.cache/ceph/pgs_dump.json)"
-
-# guess date format, addresses a date stamp change from nautilus to octopus
-if [[ "$first_ts" == ????-??-??T??:??:??.??????[+-]???? ]]; then
-	# bug: this converts the minutes part of a time offset incorrectly
-        #      for timezones with fractional offset
-	scrub_info="$(jq --arg T0 "$T0" --arg pool_id "${pool_info[0]}" -rc \
-		'.pg_stats[] | [
-		.pgid,
-		((( (.last_scrub_stamp[:19]+"Z" | ($T0|tonumber) - fromdateiso8601)
-			+ (.last_scrub_stamp[26:]|tonumber)*36)/(60*60*6)) | ceil),
-		((( (.last_deep_scrub_stamp[:19]+"Z" | ($T0|tonumber) - fromdateiso8601)
-			+ (.last_deep_scrub_stamp[26:]|tonumber)*36)/(60*60*24)) | ceil),
-		.state,
-		(.acting | join(" "))
-		] | @tsv
-	' /root/.cache/ceph/pgs_dump.json)" || exit 1
-else
-	# try to be lucky and construct local time stamp in ISO8601 format
-	#   this might lead to incorrect time offsets
-	scrub_info="$(jq --arg T0 "$T0" --arg pool_id "${pool_info[0]}" -rc \
-		'.pg_stats[] | [
-		.pgid,
-		((( (.last_scrub_stamp[0:10]+"T"+.last_scrub_stamp[11:19]+"Z" 
-			| ($T0|tonumber) - fromdateiso8601))/(60*60*6)) | ceil),
-		((( (.last_deep_scrub_stamp[0:10]+"T"+.last_deep_scrub_stamp[11:19]+"Z"
-			| ($T0|tonumber) - fromdateiso8601))/(60*60*24)) | ceil),
-		.state,
-		(.acting | join(" "))
-		] | @tsv
-	' /root/.cache/ceph/pgs_dump.json)" || exit 1
+if (( rebuild_cache )); then
+	T0="$(date +%s)"
+	
+	# bug: this should stop processing after the first array element is read
+	first_ts="$(jq -r '.pg_stats[0].last_scrub_stamp' "${cache_dir}/pgs_dump.json")"
+	
+	# guess date format, addresses a date stamp change from nautilus to octopus
+	if [[ "$first_ts" == ????-??-??T??:??:??.??????[+-]???? ]]; then
+		jq --arg T0 "$T0" --arg pool_id "${pool_info[0]}" -rc \
+			'.pg_stats[] | [
+			.pgid,
+			((( (.last_scrub_stamp[:19]+"Z" | ($T0|tonumber) - fromdateiso8601)
+				+ ((.last_scrub_stamp[26:27]+"1")|tonumber)*(
+				    (.last_scrub_stamp[27:29]|tonumber)*3600 +
+				    (.last_scrub_stamp[29:31]|tonumber)*60
+				  )))),
+			((( (.last_deep_scrub_stamp[:19]+"Z" | ($T0|tonumber) - fromdateiso8601)
+				+ ((.last_deep_scrub_stamp[26:27]+"1")|tonumber)*(
+				    (.last_deep_scrub_stamp[27:29]|tonumber)*3600 +
+				    (.last_deep_scrub_stamp[29:31]|tonumber)*60
+				  )))),
+			.state,
+			(.acting | join(" "))
+			] | @tsv
+		' "${cache_dir}/pgs_dump.json" > "${cache_dir}/pgs_scrub_info.txt" || exit 1
+	else
+		# try to be lucky and construct local time stamp in ISO8601 format
+		#   this might lead to incorrect time offsets
+		jq --arg T0 "$T0" --arg pool_id "${pool_info[0]}" -rc \
+			'.pg_stats[] | [
+			.pgid,
+			((( (.last_scrub_stamp[0:10]+"T"+.last_scrub_stamp[11:19]+"Z" 
+				| ($T0|tonumber) - fromdateiso8601)))),
+			((( (.last_deep_scrub_stamp[0:10]+"T"+.last_deep_scrub_stamp[11:19]+"Z"
+				| ($T0|tonumber) - fromdateiso8601)))),
+			.state,
+			(.acting | join(" "))
+			] | @tsv
+		' "${cache_dir}/pgs_dump.json" > "${cache_dir}/pgs_scrub_info.txt" || exit 1
+	fi
+	
+	# less "${cache_dir}/pgs_scrub_info.txt"
+	# sort -g -k2,2 -k3,3 "${cache_dir}/pgs_scrub_info.txt" | less
+	# exit
 fi
-
-# less <<<"$scrub_info"
-# sort -n -k2,2 <<<"$scrub_info" | less
-# exit
 
 #     1          2               3      4    5..NF
 # pg_id scrub-ints deep-scrub-ints status acting[]
-awk <<<"$scrub_info" -v pool_id="${pool_info[0]}" -v sis_mn="$sc_int" -v dsis_mn="$ds_int" '{
+awk -v pool_id="${pool_info[0]}" -v sis_mn="$sc_int" -v dsis_mn="$ds_int" \
+	-v sim="$pool_scrub_min_interval" -v sirr="$osd_scrub_interval_randomize_ratio" '{
 	split($1, pg_id, ".") # [1]=pool_id
 	if(pg_in_pool=(pg_id[1]==pool_id)) {
 		NPGS++
-		si=$2>0 ? $2 : 1
+		if($2>sis_mn*21600) {
+			ST+=$2
+			NPGS_S++
+		}
+		si=$2>0 ? 1+int($2/21600) : 1
 		si_mx=si_mx<si ? si : si_mx
-		dsi=$3>0 ? $3 : 1
+		if($3>dsis_mn*86400) {
+			DST+=$3
+			NPGS_DS++
+		}
+		dsi=$3>0 ? 1+int($3/86400) : 1
 		dsi_mx=dsi_mx<dsi ? dsi : dsi_mx
 		pg_sn[si]++
 		pg_dsn[dsi]++
@@ -143,8 +178,14 @@ END {
 		if(scrubbing[si])        printf(" %d scrubbing", scrubbing[si])
 		printf("\n")
 	}
-	printf("      %7d PGs out of %d reported, %d missing, %d scrubbing, %d idle, %d unclean.\n", \
-		npgs, NPGS, NPGS-npgs, nscr, nidle, nunc)
+	if(npgs==NPGS) {
+		printf("      %7d PGs, EST=%.2fd (%.2fd), %d scrubbing, %d idle, %d unclean.\n", \
+			NPGS, (NPGS_S>0 ? ST/NPGS_S/86400 : sis_mn/4), (sim*(1+sirr/3))/24, \
+			nscr, nidle, nunc)
+	} else {
+		printf("      %7d PGs out of %d reported, %d missing, %d scrubbing, %d idle, %d unclean.\n", \
+			npgs, NPGS, NPGS-npgs, nscr, nidle, nunc)
+	}
 	print ""
 	print "Deep-scrub report:"
 	npgs=0
@@ -174,26 +215,29 @@ END {
 		if(deep_scrubbing[dsi]) printf(" %d scrubbing+deep", deep_scrubbing[dsi])
 		printf("\n")
 	}
-	printf("      %7d PGs out of %d reported, %d missing, %d scrubbing+deep, %d unclean.\n", \
-		npgs, NPGS, NPGS-npgs, nscr, nunc)
+	if(npgs==NPGS) {
+		printf("      %7d PGs, EDST=%.2fd, %d scrubbing+deep, %d unclean.\n", \
+			NPGS, (NPGS_DS>0 ? DST/NPGS_DS/86400 : dsi_mn), nscr, nunc)
+	} else {
+		printf("      %7d PGs out of %d reported, %d missing, %d scrubbing+deep, %d unclean.\n", \
+			npgs, NPGS, NPGS-npgs, nscr, nunc)
+	}
 }
-'
+' "${cache_dir}/pgs_scrub_info.txt"
 
 echo ""
-pool_scrub_min_interval="$(jq -r '(.scrub_min_interval // 0)/3600' <<<"$pool_settings")"
-osd_scrub_interval_randomize_ratio="$(ceph config get "$first_primary" osd_scrub_interval_randomize_ratio)"
-smi_eq_occup="$(bc <<<"100/(1+0.5*${osd_scrub_interval_randomize_ratio})/1")"
-pgs_per_bucket="$(bc <<<"${smi_eq_occup}*${pool_info[2]}*6/${pool_scrub_min_interval}/100")"
+smi_eq_occup="$(bc <<<"scale=4; a=100/(1+0.5*${osd_scrub_interval_randomize_ratio}); scale=0; (a+0.5)/1")"
+pgs_per_bucket="$(bc <<<"${smi_eq_occup}*${pool_info[2]}*6/(${pool_scrub_min_interval}*100)")"
 echo "${pool_info[1]}  scrub_min_interval=${pool_scrub_min_interval}h  ($((pool_scrub_min_interval / 6))i/${smi_eq_occup}%/${pgs_per_bucket}PGs÷i)"
 
 pool_scrub_max_interval="$(jq -r '(.scrub_max_interval // 0)/3600' <<<"$pool_settings")"
 echo "${pool_info[1]}  scrub_max_interval=${pool_scrub_max_interval}h  ($((pool_scrub_max_interval / 24))d)"
 
 pool_deep_scrub_interval="$(jq -r '(.deep_scrub_interval // 0)/3600' <<<"$pool_settings")"
-dsmi_eq_occup="$(bc <<<"100*${pool_deep_scrub_interval}/(\
+dsmi_eq_occup="$(bc <<<"scale=4; a=100*${pool_deep_scrub_interval}/(\
 		${pool_deep_scrub_interval}+0.5*(${pool_scrub_min_interval}*(1+0.5*${osd_scrub_interval_randomize_ratio}))\
-	)")"
-pgs_per_bucket="$(bc <<<"${dsmi_eq_occup}*${pool_info[2]}*24/${pool_deep_scrub_interval}/100")"
+	); scale=0; (a+0.5)/1")"
+pgs_per_bucket="$(bc <<<"${dsmi_eq_occup}*${pool_info[2]}*24/(${pool_deep_scrub_interval}*100)")"
 echo "${pool_info[1]}  deep_scrub_interval=${pool_deep_scrub_interval}h  ($((pool_deep_scrub_interval / 24))d/~${dsmi_eq_occup}%/~${pgs_per_bucket}PGs÷d)"
 
 smi_plus_rand="$(bc -l <<<"scale=0; (($pool_scrub_min_interval * (1+$osd_scrub_interval_randomize_ratio))+0.5)/1")"
@@ -209,7 +253,8 @@ osd_backoff="$(ceph config get "$first_primary" osd_scrub_backoff_ratio)"
 osd_class="$(ceph osd crush get-device-class "$first_primary")"
 pool_size="$(jq -r '.size' <<<"$pool_settings")"
 rec_backoff="$(bc<<<"scale=4; 1-0.75/$pool_size")"
-echo "$first_primary  osd_scrub_backoff_ratio=${osd_backoff}  rec. this pool: $rec_backoff (class $osd_class, size $pool_size)"
+# echo "$first_primary  osd_scrub_backoff_ratio=${osd_backoff}  max this pool: $rec_backoff (class $osd_class, size $pool_size)"
+echo "$first_primary  osd_scrub_backoff_ratio=${osd_backoff}"
 
 mon_warn_pg_not_scrubbed_ratio="$(ceph config get mon.ceph-01 mon_warn_pg_not_scrubbed_ratio)"
 scrub_warni="$(bc -l <<<"scale=1; ${pool_scrub_max_interval}*(1+${mon_warn_pg_not_scrubbed_ratio})/6")"
