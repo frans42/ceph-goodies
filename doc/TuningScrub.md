@@ -46,7 +46,7 @@ depending on drive size and performance. The default ratio of scrub_min_interval
 The parameters need to be set in seconds, use the following values:
 
 | scrub interval | seconds | | deep scrub interval | seconds |
-|       ---      |  ---  :|---|       ---          |   ---  :|
+|       ---      |  ---:  |---|       ---          |   ---:  |
 | 1 day  |  86400 | | 1 week  |  604800 |
 | 2 days | 172800 | | 2 weeks | 1209600 |
 | 3 days | 259200 | | 3 weeks | 1814400 |
