@@ -67,16 +67,21 @@ if (( rebuild_cache )); then
 	first_ts="$(jq -r '.pg_stats[0].last_scrub_stamp' "${cache_dir}/pgs_dump.json")"
 	
 	# guess date format, addresses a date stamp change from nautilus to octopus
+	# the weird looking construct
+	#     (fromdateiso8601|todateiso8601|fromdateiso8601)-fromdateiso8601
+	# is a work around https://github.com/jqlang/jq/issues/3088
 	if [[ "$first_ts" == ????-??-??T??:??:??.??????[+-]???? ]]; then
 		jq --arg T0 "$T0" --arg pool_id "${pool_info[0]}" -rc \
 			'.pg_stats[] | [
 			.pgid,
-			((( (.last_scrub_stamp[:19]+"Z" | ($T0|tonumber) - fromdateiso8601)
+			((( (.last_scrub_stamp[:19]+"Z" | ($T0|tonumber) - fromdateiso8601
+				+ ((fromdateiso8601|todateiso8601|fromdateiso8601)-fromdateiso8601) )
 				+ ((.last_scrub_stamp[26:27]+"1")|tonumber)*(
 				    (.last_scrub_stamp[27:29]|tonumber)*3600 +
 				    (.last_scrub_stamp[29:31]|tonumber)*60
 				  )))),
-			((( (.last_deep_scrub_stamp[:19]+"Z" | ($T0|tonumber) - fromdateiso8601)
+			((( (.last_deep_scrub_stamp[:19]+"Z" | ($T0|tonumber) - fromdateiso8601
+				+ ((fromdateiso8601|todateiso8601|fromdateiso8601)-fromdateiso8601) )
 				+ ((.last_deep_scrub_stamp[26:27]+"1")|tonumber)*(
 				    (.last_deep_scrub_stamp[27:29]|tonumber)*3600 +
 				    (.last_deep_scrub_stamp[29:31]|tonumber)*60
