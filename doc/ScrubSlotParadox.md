@@ -6,7 +6,7 @@ An alternative formulation of this question is: we have 12 servers with 71 HDD O
 
 The surprising answer is: actually, no (and a little bit yes; see comment at the end).
 
-Lets look at a simplified situation for which we can calculate statistics: take an 8+3 EC pool on 11 hosts with 71 OSDs each. If all combinations of disks per host are equally likely and drawn randomly for each of our PGs, how many PGs can we expect to exist on a subset of 71-S OSDs per host? The answer is given by the ratio of the number of permutations of disks in the hosts minus the number of PGs scrubbing and the total number of permutations times the expected number of eligible PGs:
+Lets look at a simplified situation for which we can calculate statistics: take an 8+3 EC pool on 11 hosts with 71 OSDs each, a setting where every PG has exactly 1 OSD in each host as a member. If all combinations of disks per host are equally likely and selected randomly for each of our PGs, how many PGs can we expect to exist on a subset of 71-S OSDs per host? The answer is given by the ratio of the [number of permutations][1] of disks in the hosts minus the number of PGs scrubbing and the total number of permutations times the expected number of eligible PGs:
 
     N=#P(71-S,11)/#P(71,11)*#PGs_eligible,
 
@@ -54,3 +54,5 @@ If multiple pools live on the same OSDs, the calculation becomes more complicate
 With the example above we obtain `SL=1+(781/11)*(1-(0.1*8192)^(-1/11))=33` (taking the floor as usual to obtain integers). If we add the extra host, we get `1+(852/11)*(1-(0.1*8192)^(-1/11))=36`. Just for fun, in the extreme case of E=1 (`scrub_min_interval=0`, all PGs are eligible all the time) we get 40 (44 with the extra host)! That's not a lot more and marks the hard limit of how many scrub slots a pool has.
 
 There is still quite a gap between the number 33 of scrub slots for pool 2 alone and the observation in the ceph-user post of no more than 20-22 PGs of pool 1 _and_ 2 scrubbing simultaneously. The reason for this discrepancy is a low scrub slot utilization caused by [hanging scrub reservations](StuckScrubReservations.md).
+
+[1] https://en.wikipedia.org/wiki/Permutation#Permutations_with_repetition
