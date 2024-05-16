@@ -20,7 +20,7 @@ where the factor 0.1 comes from the assumption that at equilibrium 10% of PGs ar
 ---|:---:|:---:|:---:|:--:|:--:|:--:|:--:|
  N | 819 | 366 | 154 | 60 | 21 | 6  | 1  |
 
-The surprising result is that even with 10% of PGs being eligible for scrubbing no more than 31 PGs can be expected to scrub simultaneously, leaving 40 or more OSDs per host idle at all times! Furthermore, due to the large exponent of 11=8+3, increasing the number of PGs of the pools has a limited effect only. It is likely to increase utilization of the number of _scrub slots_ `SL` (see definition below) while it has limited effect on the number of scrub slots itself.
+The surprising result is that even with 10% of PGs being eligible for scrubbing no more than about 31 PGs can be expected to scrub simultaneously, leaving 40 or more OSDs per host idle at all times! Furthermore, due to the large exponent of 11=8+3, increasing the number of PGs of the pools has a limited effect only. It is likely to increase utilization of the number of _scrub slots_ `SL` (see definition below) while it has limited effect on the number of scrub slots itself.
 
 Interestingly, this result seems invariant if the number of hosts is increased. This only adds a common factor to each of the permutation terms, which then divide out to 1. Furthermore, from
 

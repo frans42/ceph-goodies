@@ -1,0 +1,23 @@
+#!/bin/bash
+
+health="$(ceph health --format json-pretty | jq -r ".status")"
+
+[[ "$health" = "HEALTH_OK" ]] || {
+	echo "ceph not healthy (status: $health), exiting"
+	exit
+}
+
+sleep "$((1 + $RANDOM % 29))"
+while (( ${#@} )) ; do
+	scrub_min_interval="$(ceph osd pool get "$1" scrub_min_interval --format json-pretty | jq -r .scrub_min_interval)"
+	if [[ -n "$scrub_min_interval" ]]; then
+		if (( scrub_min_interval % 10 )); then
+			ceph osd pool set "$1" scrub_min_interval $(( (scrub_min_interval/10)*10 ))
+		else
+			ceph osd pool set "$1" scrub_min_interval $(( scrub_min_interval+5 ))
+			sleep 1
+			ceph osd pool set "$1" scrub_min_interval $(( (scrub_min_interval/10)*10 ))
+		fi
+	fi
+	shift
+done
