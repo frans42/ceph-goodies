@@ -2,7 +2,7 @@
 
 In the thread [increasing number of (deep) scrubs](https://lists.ceph.io/hyperkitty/list/ceph-users@ceph.io/thread/NHOHZLVQ3CKM7P7XJWGVXZUXY24ZE7RK) ([thread in archive](https://www.spinics.net/lists/ceph-users/msg75292.html)) we were asking why deep scrubs are lagging behind while only about 232/852=27% of OSDs are scrubbing and it would be easy to catch up if a higher percentage of OSDs would deep scrub as well.
 
-An alternative formulation of the question is this: we have 12 servers with 71 HDD OSDs, which back 2 pools with 8+2 (2024 PGs) and 8+3 (8192) EC profiles and failure domain host. Naively, one could say that it should be possible to scrub 71 PGs simultaneously instead of the 20-22 PGs we observe. Surely, if there are no more than 22 OSDs busy per host it should be possible to scrub a few PGs more at the same time, because there are still 49 OSDs per host idle.
+An alternative formulation of this question is: we have 12 servers with 71 HDD OSDs, which back 2 pools with 8+2 (2048 PGs) and 8+3 (8192) EC profiles and failure domain host. Naively, one could say that it should be possible to scrub 71 PGs simultaneously instead of the 20-22 PGs we observe. Surely, if there are no more than 22 OSDs busy per host it should be possible to scrub a few PGs more at the same time, because there are still 49 OSDs per host idle.
 
 The surprising answer is: actually, no (and a little bit yes; see comment at the end).
 
@@ -53,4 +53,4 @@ If multiple pools live on the same OSDs, the calculation becomes more complicate
 
 With the example above we obtain `SL=1+(781/11)*(1-(0.1*8192)^(-1/11))=33` (taking the floor as usual to obtain integers). If we add the extra host, we get `1+(852/11)*(1-(0.1*8192)^(-1/11))=36`. Just for fun, in the extreme case of E=1 (`scrub_min_interval=0`, all PGs are eligible all the time) we get 40 (44 with the extra host)! That's not a lot more and marks the hard limit of how many scrub slots a pool has.
 
-There is still quite a gap between the number 33 of scrub slots for pool 2 alone in the post and the observation of no more than 20-22 PGs of pool 1 _and_ 2 scrubbing simultaneously. The reason for this discrepancy is a low scrub slot utilization caused by [hanging scrub reservations](StuckScrubReservations.md).
+There is still quite a gap between the number 33 of scrub slots for pool 2 alone and the observation in the ceph-user post of no more than 20-22 PGs of pool 1 _and_ 2 scrubbing simultaneously. The reason for this discrepancy is a low scrub slot utilization caused by [hanging scrub reservations](StuckScrubReservations.md).
