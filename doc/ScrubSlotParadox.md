@@ -1,16 +1,16 @@
 # The Scrub Slot Paradox
 
-In the thread [increasing number of (deep) scrubs](https://lists.ceph.io/hyperkitty/list/ceph-users@ceph.io/thread/NHOHZLVQ3CKM7P7XJWGVXZUXY24ZE7RK) ([thread in archive](https://www.spinics.net/lists/ceph-users/msg75292.html)) we were asking the question why deep scrubs are lagging behind while only about 232/852=27% of OSDs are scrubbing and it would be easy to catch up if a higher percentage of OSDs would deep scrub as well.
+In the thread [increasing number of (deep) scrubs](https://lists.ceph.io/hyperkitty/list/ceph-users@ceph.io/thread/NHOHZLVQ3CKM7P7XJWGVXZUXY24ZE7RK) ([thread in archive](https://www.spinics.net/lists/ceph-users/msg75292.html)) we were asking why deep scrubs are lagging behind while only about 232/852=27% of OSDs are scrubbing and it would be easy to catch up if a higher percentage of OSDs would deep scrub as well.
 
-An alternative formulation of the question is this: we have 12 servers with 71 HDD OSDs, which back 2 pools with 8+2 (2024 PGs) and 8+3 (8192) EC profiles and failure domain host. Naively, one could say that it should be possible to scrub 71 PGs simultaneously instead of the 20-22 PGs we observe. Surely, if there are no more than 22 OSDs busy per host it should be possible to scrub up to 49 PGs more at the same time, because there are 49 OSDs per host idle.
+An alternative formulation of the question is this: we have 12 servers with 71 HDD OSDs, which back 2 pools with 8+2 (2024 PGs) and 8+3 (8192) EC profiles and failure domain host. Naively, one could say that it should be possible to scrub 71 PGs simultaneously instead of the 20-22 PGs we observe. Surely, if there are no more than 22 OSDs busy per host it should be possible to scrub a few PGs more at the same time, because there are still 49 OSDs per host idle.
 
-The surprising answer is: actually, no.
+The surprising answer is: actually, no (and a little bit yes; see comment at the end).
 
-Lets look at a simplified situation for which we can calculate statistics: take an 8+3 EC pool on 11 hosts with 71 OSDs each. How many PGs can we expect to be scrubbing at the same time? The answer is given by the ratio of the number of permutations of disks in the hosts minus the number of PGs scrubbing and the total number of permutations times the expected number of eligible PGs:
+Lets look at a simplified situation for which we can calculate statistics: take an 8+3 EC pool on 11 hosts with 71 OSDs each. If all combinations of disks per host are equally likely and drawn randomly for each of our PGs, how many PGs can we expect to exist on a subset of 71-S OSDs per host? The answer is given by the ratio of the number of permutations of disks in the hosts minus the number of PGs scrubbing and the total number of permutations times the expected number of eligible PGs:
 
     N=#P(71-S,11)/#P(71,11)*#PGs_eligible,
 
-where `#P(X,Y)=X^Y` is the cardinal number of the set of Y-tuples of X elements. N is the expected value of PGs that can be scrubbed when S PGs are already scrubbing. If `N>=1` we can expect that at least 1 additional PG can be scrubbed. Note that the formula simplifies to
+where `#P(X,Y)=X^Y` is the cardinal number of the set of Y-tuples of X elements. N is the expected value of #PGs that exist on the remaining 71-S OSDs after removing the OSDs of the S PGs that are scrubbing. If `N>=1` we can expect that at least 1 additional PG can be scrubbed. Note that the formula simplifies to
 
     N=0.1*8192*((71-S)/71)^11,
 
