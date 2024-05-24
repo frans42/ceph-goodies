@@ -37,7 +37,7 @@ If the adjustments described above do not suffice to (deep-)scrub PGs in time on
 
 ## Adjust deep scrub time for pools on HDDs
 
-For EC pools with high replication factor and living on large disks, mainly HDDs but potentially also large low-end SSDs, deep-scrubbing all PGs within a short time window can be challenging. To find out what deep-scrub times are realistic, one can estimate the time window as
+For EC pools with high replication factor and living on large disks, mainly HDDs but potentially also large low-end SSDs, deep-scrubbing all PGs within a short time window [can be challenging](ScrubSlotParadox.md). To find out what deep-scrub times are realistic, one can estimate the time window as
 
     DSI = 2 * ADST_PG * #PGs / SL / 24
 
