@@ -200,7 +200,7 @@ END {
 	if(npgs==NPGS) {
 		printf("      %7d PGs, EST=%.2fd (%.2fd), %d scrubbing, %d (%.1f%%) idle, %d unclean.\n", \
 			NPGS, (NPGS_S>0 ? ST/NPGS_S/86400 : sis_mn/4), (sim*(1+sirr/3))/24, \
-			nscr, nidle, nidle/npgse*100, nunc)
+			nscr, nidle, nidle/(npgse>0?npgse:1)*100, nunc)
 	} else {
 		printf("      %7d PGs out of %d reported, %d missing, %d scrubbing, %d idle, %d unclean.\n", \
 			npgs, NPGS, NPGS-npgs, nscr, nidle, nunc)
