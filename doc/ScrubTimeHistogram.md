@@ -129,6 +129,7 @@ shows monitor settings controlling the appearance of scrub-related warnings. The
 Next: [The scrub slot paradox.](ScrubSlotParadox.md)
 Back: [Terms and definitions.](ScrubTerms.md)
 Start: [Scrub tuning guide.](TuningScrub.md)
+
 ---
 
 # Historic scrub time histograms
