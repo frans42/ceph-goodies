@@ -1,5 +1,3 @@
-[WIP]
-
 # Inspecting scrub time histograms
 
 Use the script [`pool-scrub-report`](../scripts/pool-scrub-report) to print a scrub-time histogram for a pool. Usage is as in
