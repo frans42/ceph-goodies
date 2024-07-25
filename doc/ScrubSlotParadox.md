@@ -54,3 +54,8 @@ If multiple pools live on the same OSDs, the calculation becomes more complicate
 With the example above we obtain `SL=1+(781/11)*(1-(0.1*8192)^(-1/11))=33` (taking the floor as usual to obtain integers). If we add the extra host, we get `1+(852/11)*(1-(0.1*8192)^(-1/11))=36`. Just for fun, in the extreme case of E=1 (`scrub_min_interval=0`, all PGs are eligible all the time) we get 40 (44 with the extra host)! That's not a lot more and marks the hard limit of how many scrub slots a pool has.
 
 There is still quite a gap between the number 33 of scrub slots for pool 2 alone and the observation in the ceph-user post of no more than 20-22 PGs of pool 1 _and_ 2 scrubbing simultaneously. The reason for this discrepancy is a low scrub slot utilization caused by [hanging scrub reservations](StuckScrubReservations.md).
+
+---
+Next: [Stuck scrub reservations.](StuckScrubReservations.md)
+Back: [Inspecting scrub time histograms.](ScrubTimeHistogram.md)
+Start: [Scrub tuning guide.](TuningScrub.md)

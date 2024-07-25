@@ -14,3 +14,7 @@ In a simple experiment we confirmed that running the [script bump_scrubs](../scr
 seriously gets things going. Running it every 15 minutes gives already a significant speed-up. Increasing the frequency to every 5 minutes raised the scrub slot utilization to almost 100%, resulting in a speed-up of ordinary scrubs by a factor of three or more and of deep-scrub by an extra 10-30%. Its the ordinary scrubs that suffer most from low scrub slot utilization, because all the allocated slots are occupied with long-running deep-scrubs and only very few ordinary scrubs squeeze through when scrub reservations get stuck for too long.
 
 Having found out about this, we decided to relax the scrub times such that the low scrub slot utilization of the scrub machine can handle scrubbing on its own. However, we keep the cron job as a life line should we encounter serious delays again. In case you really need to reduce (deep-)scrub times at all cost, give this script a shot. It will pause while ceph is in health warn state, which includes maintenance mode by setting noout to prevent interference with admin operations.
+
+---
+Back: [The scrub slot paradox.](ScrubSlotParadox.md)
+Start: [Scrub tuning guide.](TuningScrub.md)

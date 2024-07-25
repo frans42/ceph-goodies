@@ -1,8 +1,14 @@
-[WIP]
-
 # Tuning the scrub machine
 
-*Note: while the discussion below focuses mainly on HDDs due to their low IOPS performance per TB, we also address solid state storage and give recommendations.*
+*Note: while our investigation focuses mainly on HDDs due to their low IOPS performance per TB, we also address solid state storage and give recommendations.*
+
+This page is the entry point to our tuning guide for (deep-)scrub. On every page we have a "next" and "back" link to navigate in the recommended order or reading. To jump quickly to a specific topic, follow these links:
+
+- [Recommendations for scrub settings.](RecommendationsForScrub.md)
+- [Definition of terms used in this tuning guide.](ScrubTerms.md)
+- [Inspecting scrub time histograms.](ScrubTimeHistogram.md)
+- [The scrub slot paradox.](ScrubSlotParadox.md)
+- [Low scrub slot utilization due to stuck scrub reservations.](StuckScrubReservations.md)
 
 ## Introduction
 
@@ -29,16 +35,16 @@ This pool has approximately an aggregated IOPS budget of 5800, which sounds litt
 
 ## Goal
 
-With our tuning recommendations we aim at configuring (dep-)scrub such that:
+With our tuning recommendations we aim at configuring (deep-)scrub such that:
 
 - PGs scrub every A-B days
 - PGs deep-scrub every C-D days
 - no PGs (deep-)scrub before (C)A days, that is, no premature (deep-)scrubbing
 - PGs with (deep-)scrub ages <(C)A should be evenly distributed in the scrub time histogram
-- (deep-)scrub load under normal conditions should be low enough such that the scrub machine has sufficient reserves to handle exceptional situations causing (deep-)scrub to pause, for example, rebalancing after adding OSDs or periods of high load on the servers; (deep-)scrub should catch up after a reasonable amount of time
+- (deep-)scrub load under normal conditions should be low enough such that the scrub machine has sufficient reserves to handle exceptional situations causing (deep-)scrub to pause, for example, re-balancing after adding OSDs or periods of high load on the servers; (deep-)scrub should catch up after a reasonable amount of time
 
 With the current implementation of the ceph scrub machine and parameters available for tuning we were able to find configurations that approximate these goals sufficiently well for our purposes. In many cases, our [general recommendations](RecommendationsForScrub.md) will do.
 
-## Terminology and relevant parameters
-
-We call a PG *idle* if it is active+clean and no OSD that is a member of this PG is scrubbing or scrubbing+deep. We call a PG *eligible* for (deep-)scrub if its (deep-)scrub age has passed the (deep-)scrub threshold. PGs that are eligible+idle can be (deep-)scrubbed at any time. This explains the mystery why a "`ceph pg deep-scrub x.y`" often does not cause a PG to deep-scrub (immediately). The command forces the PG to become eligible, but (deep-)scrub start has to wait until it also becomes idle.
+---
+Next: [Recommendations for scrub settings.](RecommendationsForScrub.md)
+Start: [Scrub tuning guide.](TuningScrub.md)

@@ -1,6 +1,6 @@
 # General recommendation
 
-In our investigation we found that the following two recommendations apply in general for all drive types. These are the two main settings to reduce sustained deep-scrub load while improving scrub time and eliminating long tails in the scrub time histogram. It is assumed that all other scrub settings are at default.
+In our investigation we found that the following two recommendations apply in general for all drive types. These are the two main settings to reduce sustained deep-scrub load while improving scrub time and eliminating long tails in the [scrub time histogram](ScrubTimeHistogram.md). It is assumed that all other scrub settings are at default.
 
 ## Always set osd_deep_scrub_randomize_ratio=0
 
@@ -63,6 +63,27 @@ ceph osd pool set MyPool scrub_min_interval  172800
 ceph osd pool set MyPool deep_scrub_interval 1209600
 ```
 
+### Why use pool settings for scrub instead of OSD settings?
+
+Ceph allows to set scrub parameters on OSDs and on pools. By default, pool settings are empty, which means that OSD settings are "inherited". This mostly works. However, there are use cases where this leads to unexpected results and we recommend to use per-pool settings to override OSD settings. Per-pool settings take precedence if present, hence, OSD settings don't need to be touched when using pool settings.
+
+In our investigation we found that using pool settings is much less confusing than using OSD settings. Strictly speaking, one would need to check every single OSD that has PGs in a pool for individual settings and compute to which PGs of a pool which settings apply - it is easy to create a mess. Therefore, our [script for inspecting scrub time histograms](ScrubTimeHistogram.md) assumes for simplicity that pool settings are present and will not provide all information correctly if OSD settings are used.
+
+Our recommendation is always to use per-pool settings to make explicit what is expected. Two examples where the default per-OSD settings will lead to unexpected results are:
+
+#### Pools with mixed device types
+
+This seems to be a common use case for replicated pools; see also [custom crush rules](https://docs.ceph.com/en/latest/rados/operations/crush-map/#custom-crush-rules) in the ceph documentation. A possible set-up for replicated pools is to mix SSDs and HDDs and create crush rules such that SSDs are selected as primaries for PGs. In such a pool, the scrub settings for SSD OSDs are (unintentionally) applied to the HDD members as well, because the primary OSDs are responsible for scheduling scrubs. As a consequence, the (deep-)scrub load on such a mixed pool will be too high and it is better to set the scrub parameters on the pool directly to avoid any confusion about what settings are actually applied to the pool.
+
+#### Pools on the same OSDs requiring different scrub settings
+
+Following up on the above example, consider that besides the mixed pool there also lives an SSD-only pool on the SSDs. In that case, the SSD-only pool should use scrub settings suitable for SSDs while the mixed pool should use settings suitable for HDDs. This is not even possible using OSD settings alone and per-pool settings are required.
+
 ## Bump scrub throughput by clearing hanging scrub reservations
 
 If the deep_scrub_interval obtained from the formula in the previous section is unacceptably high, running the [script bump_scrubs](../scripts/bump_scrubs) in a cron job allows to reduce the factor 2 accounting for [low scrub slot utilization](StuckScrubReservations.md). If this is still not sufficient, the only way forward is to use smaller and/or better performing disks.
+
+---
+Next: [Terms and definitions.](ScrubTerms.md)
+Back: [Tuning guide.](TuningScrub.md)
+Start: [Scrub tuning guide.](TuningScrub.md)
