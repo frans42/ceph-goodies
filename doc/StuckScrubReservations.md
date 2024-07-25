@@ -6,7 +6,7 @@ While investigating the issue reported in the thread [increasing number of (deep
 
 To get to the root of it, we started looking at the source code ([pg_scrubber.h is a good entry point](https://github.com/ceph/ceph/blob/main/src/osd/scrubber/pg_scrubber.h)) and found a second quite important clue. The comments in this collection of source files mention that there is a problem with scrub reservations not always being released properly, which is actually the main reason for low scrub slot utilization besides the inherent racyness of the process of acquiring scrub reservations. When we look at [the scrub slot paradox](ScrubSlotParadox.md) it is clear that only a handful of stuck scrub reservations can drastically reduce the number of remaining available scrub slots. The comments in the code also mention that all scrub reservations get cleared on certain events, one of which is a change to `scrub_max_interval`.
 
-In a simple experiment we confirmed that running the [script bump_scrubs](../scripts/bump_scrubs) (note: requires using per-pool scrub settings) in a cron job, for example, with a crontab line like
+In a simple experiment we confirmed that running the [script bump_scrubs](../scripts/bump_scrubs) (note: requires using [per-pool scrub settings](RecommendationsForScrub.md#why-use-pool-settings-for-scrub-instead-of-osd-settings)) in a cron job, for example, with a crontab line like
 
     #    m  h dom M dow
     # */15  * *   * *   /path/to/bump_scrubs pool1-name pool2-name ...

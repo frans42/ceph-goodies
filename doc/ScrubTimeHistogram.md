@@ -1,6 +1,6 @@
 # Inspecting scrub time histograms
 
-Use the script [`pool-scrub-report`](../scripts/pool-scrub-report) to print a scrub-time histogram for a pool. Usage is as in
+Use the script [`pool-scrub-report`](../scripts/pool-scrub-report) (note: requires using [per-pool scrub settings](RecommendationsForScrub.md#why-use-pool-settings-for-scrub-instead-of-osd-settings) to function properly) to print a scrub-time histogram for a pool. Usage is as in
 
 ```
 pool-scrub-report MyPool
