@@ -1,4 +1,9 @@
 #!/bin/bash
+# WARNING: This script causes increments of osdmap epochs for every set-command, which might have
+#          unintended side effects. See ceph-user cases "constant increase in osdmap epoch" at
+#          https://www.spinics.net/lists/ceph-users/msg84810.html and
+#          "failed to load OSD map for epoch 2898146, got 0 bytes" at
+#          https://www.spinics.net/lists/ceph-users/msg84485.html
 
 health="$(ceph health --format json-pretty | jq -r ".status")"
 
