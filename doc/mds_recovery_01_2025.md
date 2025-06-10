@@ -7,7 +7,7 @@ A ceph cluster version Pacific or newer might be affected if the following condi
 
 Under these conditions, a restart of the rank can lead to the rank becoming and staying unresponsive after startup. With a single MDS the file system will be inaccessible immediately. In a multi-MDS set up, access to the file system is lost gradually until a total outage of access occurs. Restarting the affected rank can unblock access for a while, but has no lasting effect.
 
-Solution: Set the MDS memory limit for the critical rank to a value greater than `(cache size reported in warning)/(1-(mds cache reservation))` and fail the MDS onto a host with sufficient RAM+swap. During startup follow the number of stray items until it stabilizes. Give the MDS time to trim caches until the cache size doesn't change any more. Slowly reduce the memory limit to normal and let the MDS trim caches gradually.
+**Solution:** Set the MDS memory limit for the critical rank to a value greater than `(cache size reported in warning)/(1-(mds cache reservation))` and fail the MDS onto a host with sufficient RAM+swap. During startup follow the number of stray items until it stabilizes. Give the MDS time to trim caches until the cache size doesn't change any more. Slowly reduce the memory limit to normal and let the MDS trim caches gradually.
 
 This was the two-week long story short. For the interested reader we provide the long story below with the intent of giving some guidelines for how to rescue a ceph cluster from a major incident like this.
 
